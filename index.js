@@ -49,6 +49,20 @@ async function run() {
       const result = await applicationsCollection.insertOne(application);
       res.send(result)
     })
+
+
+    app.get('/applications', async(req,res)=>{
+      const cursor = applicationsCollection.find()
+      const result = await cursor.toArray();
+      res.send(result)
+    });
+
+    app.get('/applications/:email', async(req,res)=>{
+      const email = req.params.email;
+      const query = {email: email};
+      const result = await applicationsCollection.find(query).toArray()
+      res.send(result)
+    })
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
     console.log(
