@@ -24,6 +24,8 @@ async function run() {
     // Connect the client to the server	(optional starting in v4.7)
     // await client.connect();
 
+    // job api 
+
     const jobsCollection = client.db("jobsDB").collection("jobs");
     const applicationsCollection = client.db('jobsDB').collection('applications')
     // get all jobs
@@ -39,6 +41,12 @@ async function run() {
       const result = await jobsCollection.findOne(query);
       res.send(result);
     });
+
+    app.post('/jobs', async(req,res)=>{
+      const newJob = req.body;
+      const result = await jobsCollection.insertOne(newJob)
+      res.send(result)
+    })
 
 
 
@@ -57,10 +65,19 @@ async function run() {
       res.send(result)
     });
 
-    app.get('/applications/:email', async(req,res)=>{
-      const email = req.params.email;
+    app.get('/currentUserApplication', async(req,res)=>{
+      const email = req.query.email
       const query = {email: email};
-      const result = await applicationsCollection.find(query).toArray()
+      const result = await applicationsCollection.find(query).toArray();
+
+    for(const application of result){
+      const jobId = application.jobId;
+      const jobQuery = {_id: new ObjectId(jobId)};
+      const job = await jobsCollection.findOne(jobQuery);
+      application.company = job.company
+      application.title = job.title;
+      application.company_logo = job.company_logo
+    }
       res.send(result)
     })
     // Send a ping to confirm a successful connection
