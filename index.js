@@ -11,6 +11,7 @@ app.use(cors({
   origin: ['http://localhost:5173'],
   credentials: true
 }));
+
 app.use(express.json());
 app.use(cookieParser());
 
@@ -20,21 +21,21 @@ const logger = (req,res,next) => {
 
 };
 
-const verified = (req,res,next) => {
+const verifiedToken = (req,res,next) => {
   const token = req?.cookies?.token;
-  if(!token){
+  if(!token) {
     return res.status(401).send({message: 'unauthorized access'})
   }
-  // verify token
-  jwt.verify(token, process.env.JWT_ACCESS_SECRET, (err, decoded)=> {
+
+  jwt.verify(token, process.env.JWT_ACCESS_SECRET, (err, decoded) => {
     if(err){
       return res.status(401).send({message: 'unauthorized access'})
     }
     req.decoded = decoded
-     next()
+    next()
   })
-
 }
+
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.cvlwqch.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
 
@@ -49,8 +50,7 @@ const client = new MongoClient(uri, {
 
 async function run() {
   try {
-    // Connect the client to the server	(optional starting in v4.7)
-    // await client.connect();
+  
 
     // job api
 
@@ -60,15 +60,17 @@ async function run() {
       .collection("applications");
 
     // jwt token related api
-    app.post("/jwt", async (req, res) => {
+
+    app.post('/jwt', async(req,res)=> {
       const userData = req.body;
-      const token = jwt.sign(userData, process.env.JWT_ACCESS_SECRET, {expiresIn: '1h'})
-      res.cookie('token', token, {
-        httpOnly:true,
+      const token = jwt.sign(userData, process.env.JWT_ACCESS_SECRET, {expiresIn: '1h'} );
+      res.cookie('token', token , {
+        httpOnly: true,
         secure: false
       })
-      res.send({success: true})
-    });
+      res.send({message: true})
+    })
+   
 
     // get all jobs
     app.get("/jobs", async (req, res) => {
@@ -123,14 +125,12 @@ async function run() {
       res.send(result);
     });
 
-    app.get("/currentUserApplication", logger, verified, async (req, res) => {
+    app.get("/currentUserApplication", verifiedToken, async (req, res) => {
       const email = req.query.email;
 
       if(email !== req.decoded.email){
         return res.status(403).send({message: 'forbidden access'})
       }
-
-      // console.log('inside applications api',req.cookies);
 
       const query = { email: email };
       const result = await applicationsCollection.find(query).toArray();
