@@ -2,11 +2,39 @@ const express = require("express");
 const app = express();
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 require("dotenv").config();
+const jwt = require("jsonwebtoken");
+const cookieParser = require('cookie-parser')
 const cors = require("cors");
 const port = process.env.PORT || 5000;
 
-app.use(cors());
+app.use(cors({
+  origin: ['http://localhost:5173'],
+  credentials: true
+}));
 app.use(express.json());
+app.use(cookieParser());
+
+const logger = (req,res,next) => {
+  console.log('inside the middleware');
+  next()
+
+};
+
+const verified = (req,res,next) => {
+  const token = req?.cookies?.token;
+  if(!token){
+    return res.status(401).send({message: 'unauthorized access'})
+  }
+  // verify token
+  jwt.verify(token, process.env.JWT_ACCESS_SECRET, (err, decoded)=> {
+    if(err){
+      return res.status(401).send({message: 'unauthorized access'})
+    }
+    req.decoded = decoded
+     next()
+  })
+
+}
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.cvlwqch.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
 
@@ -24,15 +52,48 @@ async function run() {
     // Connect the client to the server	(optional starting in v4.7)
     // await client.connect();
 
-    // job api 
+    // job api
 
     const jobsCollection = client.db("jobsDB").collection("jobs");
-    const applicationsCollection = client.db('jobsDB').collection('applications')
+    const applicationsCollection = client
+      .db("jobsDB")
+      .collection("applications");
+
+    // jwt token related api
+    app.post("/jwt", async (req, res) => {
+      const userData = req.body;
+      const token = jwt.sign(userData, process.env.JWT_ACCESS_SECRET, {expiresIn: '1h'})
+      res.cookie('token', token, {
+        httpOnly:true,
+        secure: false
+      })
+      res.send({success: true})
+    });
+
     // get all jobs
     app.get("/jobs", async (req, res) => {
-      const cursor = jobsCollection.find();
+      const email = req.query.email;
+      const query = {};
+      if (email) {
+        query.hr_email = email;
+      }
+      const cursor = jobsCollection.find(query);
       const result = await cursor.toArray();
       res.send(result);
+    });
+
+    app.get("/jobs/applications", async (req, res) => {
+      const email = req.query.email;
+      const query = { hr_email: email };
+      const jobs = await jobsCollection.find(query).toArray();
+      for (const job of jobs) {
+        const applicationsQuery = { jobId: job._id.toString() };
+        const application_count = await applicationsCollection.countDocuments(
+          applicationsQuery
+        );
+        job.application_count = application_count;
+      }
+      res.send(jobs);
     });
 
     app.get("/jobs/:id", async (req, res) => {
@@ -42,44 +103,69 @@ async function run() {
       res.send(result);
     });
 
-    app.post('/jobs', async(req,res)=>{
+    app.post("/jobs", async (req, res) => {
       const newJob = req.body;
-      const result = await jobsCollection.insertOne(newJob)
-      res.send(result)
-    })
-
-
+      const result = await jobsCollection.insertOne(newJob);
+      res.send(result);
+    });
 
     // apply api
 
-    app.post('/apply', async(req,res)=>{
+    app.post("/apply", async (req, res) => {
       const application = req.body;
       const result = await applicationsCollection.insertOne(application);
-      res.send(result)
-    })
-
-
-    app.get('/applications', async(req,res)=>{
-      const cursor = applicationsCollection.find()
-      const result = await cursor.toArray();
-      res.send(result)
+      res.send(result);
     });
 
-    app.get('/currentUserApplication', async(req,res)=>{
-      const email = req.query.email
-      const query = {email: email};
+    app.get("/applications", async (req, res) => {
+      const cursor = applicationsCollection.find();
+      const result = await cursor.toArray();
+      res.send(result);
+    });
+
+    app.get("/currentUserApplication", logger, verified, async (req, res) => {
+      const email = req.query.email;
+
+      if(email !== req.decoded.email){
+        return res.status(403).send({message: 'forbidden access'})
+      }
+
+      // console.log('inside applications api',req.cookies);
+
+      const query = { email: email };
       const result = await applicationsCollection.find(query).toArray();
 
-    for(const application of result){
-      const jobId = application.jobId;
-      const jobQuery = {_id: new ObjectId(jobId)};
-      const job = await jobsCollection.findOne(jobQuery);
-      application.company = job.company
-      application.title = job.title;
-      application.company_logo = job.company_logo
-    }
-      res.send(result)
-    })
+      for (const application of result) {
+        const jobId = application.jobId;
+        const jobQuery = { _id: new ObjectId(jobId) };
+        const job = await jobsCollection.findOne(jobQuery);
+        application.company = job.company;
+        application.title = job.title;
+        application.company_logo = job.company_logo;
+      }
+      res.send(result);
+    });
+
+    app.get("/applications/jobs/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = { jobId: id };
+      const cursor = applicationsCollection.find(query);
+      const result = await cursor.toArray();
+      res.send(result);
+    });
+
+    app.patch("/applications/:id", async (req, res) => {
+      const id = req.params.id;
+      const filter = { _id: new ObjectId(id) };
+      const updatedDoc = {
+        $set: {
+          status: req.body.status,
+        },
+      };
+      const result = await applicationsCollection.updateOne(filter, updatedDoc);
+      res.send(result);
+    });
+
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
     console.log(
